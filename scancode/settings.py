@@ -85,10 +85,10 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'mina_scancode',
-        'USER': 'root,  # 你的数据库用户名
+        'USER': 'root',  # 你的数据库用户名
         'PASSWORD': '5$c7^PGG',  # 你的数据库密码
         'HOST': '',  # 你的数据库主机，留空默认为localhost
-        'PORT': '80',  # 你的数据库端口
+        'PORT': '3306',  # 你的数据库端口
     }
 }
 
