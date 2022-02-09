@@ -1,108 +1,170 @@
-# wxcloudrun-django
-[![GitHub license](https://img.shields.io/github/license/WeixinCloud/wxcloudrun-express)](https://github.com/WeixinCloud/wxcloudrun-express)
-![GitHub package.json dependency version (prod)](https://img.shields.io/badge/python-3.7.3-green)
+## scancode 微信小程序 Django 后台
 
-微信云托管 python Django 框架模版，实现简单的计数器读写接口，使用云托管 MySQL 读写、记录计数值。
+- 文件结构
+- 工作流程
+- 某些技术细节 / 登陆验证过程 | API | models设计 | 避开 csrf 验证
 
-![](https://qcloudimg.tencent-cloud.cn/raw/be22992d297d1b9a1a5365e606276781.png)
+#### 运行环境
 
+- python3
+- django1.10
+- windows/linux/macos(未测试)
 
-## 快速开始
-前往 [微信云托管快速开始页面](https://developers.weixin.qq.com/miniprogram/dev/wxcloudrun/src/basic/guide.html)，选择相应语言的模板，根据引导完成部署。
+#### 依赖库
 
+- django
+- pycryptodomex
+- requests
 
-## 目录结构说明
-~~~
-.
-├── Dockerfile                  dockerfile
-├── README.md                   README.md文件
-├── container.config.json       微信云托管流水线配置
-├── manage.py                   django项目管理文件 与项目进行交互的命令行工具集的入口
-├── requirements.txt            依赖包文件
-└── wxcloudrun                  app目录
-    ├── __init__.py             python项目必带  模块化思想
-    ├── apps.py                 自动生成文件apps.py
-    ├── asgi.py                 自动生成文件asgi.py, 异步服务网关接口
-    ├── migrations              数据移植（迁移）模块
-    ├── models.py               数据模块
-    ├── settings.py             项目的总配置文件  里面包含数据库 web应用 日志等各种配置
-    ├── templates               模版目录,包含主页index.html文件
-    ├── urls.py                 URL配置文件  Django项目中所有地址中（页面）都需要我们自己去配置其URL
-    ├── views.py                执行响应的代码所在模块  代码逻辑处理主要地点  项目大部分代码在此编写
-    └── wsgi.py                 自动生成文件wsgi.py, Web服务网关接口
-~~~
+#### 数据库
+
+- mysql
+
+#### 文件结构
+
+文件结构和一般的 django 项目一样，只是在 mycode 文件夹下增加了 checkuser.py 和 WXBizDataCrypt.py 两个文件，作用分别为验证用户信息文件以及微信官方给出的解码加密信息文件。
 
 
-## 服务 API 文档
+#### models.py
 
-### `GET /api/count`
+项目的存储包括 4 个表，用户信息 -- 仓库 -- 商品 -- 日志
 
-获取当前计数
+其中 用户信息 -- 仓库 -- 商品 的关系为：
 
-#### 请求参数
+![structure](./image/structure.png)
 
-无
+他们之间分别用 ForeignKey 外键连接起来。
 
-#### 响应结果
+```python
 
-- `code`：错误码
-- `data`：当前计数值
+class Profile(models.Model):
+    # ...
 
-##### 响应结果示例
+class Directory(models.Model):
+    owner = models.ForeignKey('Profile', verbose_name='拥有者')
+    # ...
 
-```json
-{
-  "code": 0,
-  "data": 42
+class Goods(models.Model):
+    belong = models.ForeignKey('Directory', verbose_name='商品归属库', default=None)
+    # ...
+
+```
+
+#### 绕过 django 的 csrf 机制
+
+django 与 小程序 通信时会遇到 csrf 验证问题，解决办法为在 views.py 中的函数加上 @csrf_exempt 装饰器。
+代码示例如下：
+
+```python
+
+@csrf_exempt
+def index(request):
+    return Httpresponse('hello, mina')
+
+```
+
+#### JsonResponse
+
+django 与 小程序之间采用 json 类型的数据通信，所以在 views.py 中采用 JsonResponse 响应小程序请求，返回 json 数据
+
+```python
+
+def index(request):
+    data = {'content': 'hello,world'}
+    return JsonResponse(data)
+
+```
+
+#### 登陆验证
+使用 django 作为后端时在登陆方面需要注意
+
+- 不支持 COOKIE
+- 不支持 django 内置的 user 登录, 因为它使用的是微信的用户系统
+
+这意味着你需要通过其他的手段进行登陆验证，下面给出官方推荐的解决方案
+
+参考文档：
+官方文档：https://mp.weixin.qq.com/debug/wxadoc/dev/api/api-login.html#wxloginobject
+《微信小程序七日谈》- 第五天：你可能要在登录功能上花费大力气：http://www.cnblogs.com/ihardcoder/p/6279602.html
+
+登陆流程图：
+
+![login](./image/login.png)
+
+本程序的登陆流程代码
+
+小程序端
+app.js
+```javascript
+
+// 初始化发送到后台的数据
+var encryptdata = {}
+
+// 通过登陆获取加密信息
+wx.login({
+        // 登陆成功后得到 code
+      success: function (res) {
+        encryptdata['code'] = res['code']
+        // 请求用户信息
+        wx.getUserInfo({
+          success: function (res) {
+              // 请求用户信息后获取 iv encryptedData 值
+            encryptdata['encrypteddata'] = res['encryptedData']
+            encryptdata['iv'] = res['iv']
+        }
+    })
 }
-```
+})
 
-#### 调用示例
-
-```
-curl https://<云托管服务域名>/api/count
-```
-
-
-
-### `POST /api/count`
-
-更新计数，自增或者清零
-
-#### 请求参数
-
-- `action`：`string` 类型，枚举值
-  - 等于 `"inc"` 时，表示计数加一
-  - 等于 `"clear"` 时，表示计数重置（清零）
-
-##### 请求参数示例
+// 请求后端
+wx.request({
+      url: domain_url+'login/',
+      method:'POST',
+      // 处理 json 数据   
+      data: Util.json2Form(encryptdata),
+      header: {
+        'content-type': 'application/x-www-form-urlencoded'
+      },
+      success: function (res) {
+          // ..
+      }
+  })
 
 ```
-{
-  "action": "inc"
-}
+
+django 端
+
+后端拿到小程序发送的信息之后，分为两步处理，首先使用 appid 和 secret 以及 code 请求微信服务器，获取 session_key 和 openid
+
+```python
+
+# 从官网获取 appid 以及 secret
+appid = 'yourappid'
+secret = 'yoursecret'
+# 从小程序响应内容获取 code
+code = 'yourcode'
+
+# 微信服务器链接
+url ='https://api.weixin.qq.com/sns/jscode2session?appid={0}&secret={1}&js_code={2}&grant_type=authorization_code'
+v_url = url.format(appid, secret, code)
+req = requests.get(v_url)
+res = req.json()
+# 拿到 sessionkey 和 openid
+sessionkey = res['session_key']
+openid = res['openid']
+
 ```
 
-#### 响应结果
+紧接着使用刚刚获取的 sessionkey 解密小程序发送的加密数据
 
-- `code`：错误码
-- `data`：当前计数值
+```python
+# 导入 WXBizDataCrypt 类
+from .WXBizDataCrypt import WXBizDataCrypt
 
-##### 响应结果示例
-
-```json
-{
-  "code": 0,
-  "data": 42
-}
-```
-
-#### 调用示例
+# 解码加密信息
+pc = WXBizDataCrypt(appid, sessionkey)
+result = pc.decrypt(encrypteddata, iv)
 
 ```
-curl -X POST -H 'content-type: application/json' -d '{"action": "inc"}' https://<云托管服务域名>/api/count
-```
 
-## License
-
-[MIT](./LICENSE)
+成功之后，在我们自己的服务器上就算登陆成功了，接下来我们生成一串随机字符，作为 cookie ，用作之后小程序和 django 之间的通信凭证。最后我们根据情况新建或者更新服务器上的用户信息。
